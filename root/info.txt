@@ -1,0 +1,7 @@
+SSR = SUM(Y_hat - Y_mean)^2
+SSE = SUM(Y - Y_hat)^2
+
+SST = SSR + SSE
+SST = (Y - Y_mean) ^ 2
+
+R^2 = SSR / SST
