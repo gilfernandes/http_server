@@ -20,6 +20,11 @@ mod tests {
         test_res(String::from("/test/"), String::from("/test/index.html"));
     }
 
+    #[test]
+    fn when_replace_noslash_should_not_replace() {
+        test_res(String::from("/test/test.html"), String::from("/test/test.html"));
+    }
+
     fn test_res(res: String, expected: String) {
         let res = replace_slash(res);
         assert_eq!(res, expected);
