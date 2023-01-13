@@ -8,7 +8,7 @@ const JPEG: &'static str = "image/jpeg";
 pub(crate) struct MimeTypeProperties {
     pub(crate) content_type: String,
     pub(crate) binary: bool,
-    attachment: bool,
+    pub(crate) attachment: bool,
 }
 
 impl MimeTypeProperties {
@@ -31,6 +31,7 @@ impl MimeTypeProperties {
 
 pub(crate) fn generate_mimetype_maps() -> HashMap<String, MimeTypeProperties> {
     let mut map: HashMap<String, MimeTypeProperties> = HashMap::new();
+    map.insert(String::from("css"), MimeTypeProperties::new("text/css", false, false));
     map.insert(String::from("gif"), MimeTypeProperties::new("image/gif", true, false));
     map.insert(String::from("html"), MimeTypeProperties::new(TEXT_HTML, false, false));
     map.insert(String::from("htm"), MimeTypeProperties::new(TEXT_HTML, false, false));

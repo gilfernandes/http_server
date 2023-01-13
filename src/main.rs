@@ -5,7 +5,7 @@ use std::net::{TcpListener, TcpStream};
 
 use crate::http_parser::request_line;
 use crate::mime_type_map::{extract_mime_type, generate_mimetype_maps, MimeTypeProperties, TEXT_HTML};
-use crate::string_operations::replace_slash;
+use crate::string_operations::{extract_file_name, replace_slash};
 
 mod http_parser;
 mod mime_type_map;
@@ -27,6 +27,7 @@ fn main() {
     }
 
     fn handle_connection(mut stream: TcpStream, mime_map: &HashMap<String, MimeTypeProperties>) {
+        let base_path = "root";
         let buf_reader = BufReader::new(&mut stream);
         let http_request: Vec<_> = buf_reader
             .lines()
@@ -48,10 +49,10 @@ fn main() {
                                                                 &mime_map);
                 println!("Requested resource: {:#?}. Mime type: {}", uri, mime_type_map.content_type);
                 if mime_type_map.binary {
-                    process_binary_content(&mut stream, uri, mime_type_map.content_type);
+                    process_binary_content(&mut stream, uri, &mime_type_map);
                 }
                 else {
-                    process_text_content(&mut stream, uri, mime_type_map.content_type);
+                    process_text_content(&mut stream, uri, mime_type_map.content_type, base_path);
                 }
             }
             None => {
@@ -60,8 +61,8 @@ fn main() {
         }
     }
 
-    fn process_text_content(mut stream: &mut TcpStream, uri: String, mime_type: String) {
-        let res = fs::read_to_string(format!("./root/{}", uri).as_str());
+    fn process_text_content(mut stream: &mut TcpStream, uri: String, mime_type: String, base_path: &str) {
+        let res = fs::read_to_string(format!("./{base_path}/{}", uri).as_str());
         match res {
             Ok(contents) => {
                 stream_text(&mut stream, STATUS_OK, contents.as_str()
@@ -80,23 +81,43 @@ fn main() {
                     , mime_type.as_str());
     }
 
-    fn process_binary_content(mut stream: &mut TcpStream, uri: String, mime_type: String) {
+    fn process_binary_content(mut stream: &mut TcpStream, uri: String, mime_type_properties: &MimeTypeProperties) {
         let res = fs::read(format!("./root/{}", uri).as_str());
+        let mime_type = &mime_type_properties.content_type;
+
         match res {
             Ok(content) => {
                 let bytes = &content[..];
                 let length = bytes.len();
                 let (status_line, content_length, content_type) =
                     generate_status_headers(STATUS_OK, length, mime_type.as_str());
-                let response = format!("{status_line}{content_length}{content_type}\r\n");
+                let response = generate_binary_status_line(
+                    uri,
+                    status_line,
+                    content_length,
+                    content_type,
+                    mime_type_properties
+                );
                 let header_bytes = response.as_bytes();
                 let concat_vec = [header_bytes, bytes].concat();
                 let concat_bytes = &concat_vec[..];
                 stream.write_all(concat_bytes).unwrap();
             }
             Err(_) => {
-                not_found(&mut stream, mime_type);
+                not_found(&mut stream, mime_type.to_string());
             }
+        }
+    }
+
+    fn generate_binary_status_line(uri: String, status_line: String, content_length: String, content_type: String,
+                                   mime_type_properties: &MimeTypeProperties) -> String {
+        let attachment = &mime_type_properties.attachment;
+        if *attachment {
+            let file_name = extract_file_name(uri);
+            let content_disposition = format!("Content-Disposition: attachment; filename=\"{file_name}\"\r\n");
+            format!("{status_line}{content_disposition}{content_length}{content_type}\r\n").to_string()
+        } else {
+            format!("{status_line}{content_length}{content_type}\r\n").to_string()
         }
     }
 }
