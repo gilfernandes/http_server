@@ -10,6 +10,11 @@ pub(crate) fn extract_file_name(uri: String) -> String {
                             uri.to_string(), "${1}".to_string());
 }
 
+pub(crate) fn remove_double_slash(uri: &str) -> String {
+    let regex = Regex::new("/{2,}").unwrap();
+    regex.replace_all(uri, "/").to_string()
+}
+
 fn extract_from_str(regex: &Regex, uri: String, rep: String) -> String {
     let result = regex.replace(uri.as_str(), rep);
     return result.to_string();

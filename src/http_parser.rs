@@ -31,9 +31,9 @@ fn vchar_i(i: &[u8]) -> IResult<&[u8], &[u8]> {
     take_while(is_vchar)(i)
 }
 
-fn crlf(i: &[u8]) -> IResult<&[u8], &[u8]> {
-    tag("\r\n")(i)
-}
+// fn crlf(i: &[u8]) -> IResult<&[u8], &[u8]> {
+//     tag("\r\n")(i)
+// }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Method {

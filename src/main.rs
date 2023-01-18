@@ -1,11 +1,12 @@
-use std::collections::HashMap;
-use std::fs;
+use std::{env::var, fs};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
+use http_server::ThreadPool;
+use lazy_static::lazy_static;
 
 use crate::http_parser::request_line;
-use crate::mime_type_map::{extract_mime_type, generate_mimetype_maps, MimeTypeProperties, TEXT_HTML};
-use crate::string_operations::{extract_file_name, replace_slash};
+use crate::mime_type_map::{extract_mime_type, MimeTypeProperties, TEXT_HTML};
+use crate::string_operations::{extract_file_name, remove_double_slash, replace_slash};
 
 mod http_parser;
 mod mime_type_map;
@@ -15,19 +16,25 @@ const STATUS_OK: &'static str = "HTTP/1.1 200 OK";
 const STATUS_BAD_REQUEST: &'static str = "HTTP/1.1 400 Bad Request";
 const STATUS_NOT_FOUND: &'static str = "HTTP/1.1 404 Not Found";
 
+lazy_static! {
+    static ref ROOT_FOLDER: String = var("ROOT_FOLDER").unwrap_or("root".to_string());
+}
+
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
-    let mime_map = generate_mimetype_maps();
+    let pool = ThreadPool::new(10);
 
     for stream_result in listener.incoming() {
         let stream = stream_result.unwrap();
-
-        handle_connection(stream, &mime_map);
+        pool.execute(|| {
+            handle_connection(stream);
+        });
         println!("Connection established");
     }
 
-    fn handle_connection(mut stream: TcpStream, mime_map: &HashMap<String, MimeTypeProperties>) {
-        let base_path = "root";
+    println!("Shutting down");
+
+    fn handle_connection(mut stream: TcpStream) {
         let buf_reader = BufReader::new(&mut stream);
         let http_request: Vec<_> = buf_reader
             .lines()
@@ -45,14 +52,13 @@ fn main() {
         match request_line_option {
             Some(request_line_content) => {
                 let uri = replace_slash(request_line_content.uri);
-                let mime_type_map = extract_mime_type(uri.as_str(),
-                                                                &mime_map);
+                let mime_type_map = extract_mime_type(uri.as_str());
                 println!("Requested resource: {:#?}. Mime type: {}", uri, mime_type_map.content_type);
                 if mime_type_map.binary {
                     process_binary_content(&mut stream, uri, &mime_type_map);
                 }
                 else {
-                    process_text_content(&mut stream, uri, mime_type_map.content_type, base_path);
+                    process_text_content(&mut stream, uri, mime_type_map.content_type);
                 }
             }
             None => {
@@ -61,28 +67,40 @@ fn main() {
         }
     }
 
-    fn process_text_content(mut stream: &mut TcpStream, uri: String, mime_type: String, base_path: &str) {
-        let res = fs::read_to_string(format!("./{base_path}/{}", uri).as_str());
+    fn process_text_content(mut stream: &mut TcpStream, uri: String, mime_type: String) {
+        let path = build_path(uri);
+        let res = fs::read_to_string(path);
+
         match res {
             Ok(contents) => {
                 stream_text(&mut stream, STATUS_OK, contents.as_str()
                             , mime_type.as_str());
             }
             Err(_) => {
-                not_found(&mut stream, mime_type);
+                not_found(&mut stream);
             }
         }
     }
 
-    fn not_found(mut stream: &mut &mut TcpStream, mime_type: String) {
-        let contents = fs::read_to_string("./root/not_found.html")
-            .expect("Cannot find bad request html.");
+    fn build_path(uri: String) -> String {
+        let root_folder = ROOT_FOLDER.as_str().to_string();
+        let path_str = if root_folder.starts_with("/") { format!("/{}/{}", root_folder, uri) } else {
+            format!("./{}/{}", root_folder, uri)
+        };
+        let path = remove_double_slash(path_str.as_str());
+        path
+    }
+
+    fn not_found(mut stream: &mut &mut TcpStream) {
+        let not_found_file = format!("./{}/not_found.html", *ROOT_FOLDER);
+        let contents = fs::read_to_string(not_found_file.as_str())
+            .expect(format!("Cannot find {}", not_found_file).as_str());
         stream_text(&mut stream, STATUS_NOT_FOUND, contents.as_str()
-                    , mime_type.as_str());
+                    , extract_mime_type(not_found_file.as_str()).content_type.as_str());
     }
 
     fn process_binary_content(mut stream: &mut TcpStream, uri: String, mime_type_properties: &MimeTypeProperties) {
-        let res = fs::read(format!("./root/{}", uri).as_str());
+        let res = fs::read(format!("./{}/{}", *ROOT_FOLDER, uri).as_str());
         let mime_type = &mime_type_properties.content_type;
 
         match res {
@@ -104,7 +122,7 @@ fn main() {
                 stream.write_all(concat_bytes).unwrap();
             }
             Err(_) => {
-                not_found(&mut stream, mime_type.to_string());
+                not_found(&mut stream);
             }
         }
     }
@@ -123,7 +141,8 @@ fn main() {
 }
 
 fn send_bad_request(mut stream: &mut TcpStream) {
-    let contents = fs::read_to_string("./root/bad_request.html")
+    let bad_request = format!("./{}/bad_request.html", *ROOT_FOLDER);
+    let contents = fs::read_to_string(bad_request.as_str())
         .expect("Cannot find bad request html.");
     stream_text(&mut stream, STATUS_BAD_REQUEST, contents.as_str(),
                 TEXT_HTML);

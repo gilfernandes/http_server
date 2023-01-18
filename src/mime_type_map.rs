@@ -1,8 +1,24 @@
-use std::collections::HashMap;
 use std::str::from_utf8;
+use phf::{Map, phf_map};
 
 pub(crate) const TEXT_HTML: &'static str = "text/html";
-const JPEG: &'static str = "image/jpeg";
+pub(crate) const JPEG: &'static str = "image/jpeg";
+
+static MIME_TYPES: Map<&'static str, (&'static str, bool, bool)> = phf_map! {
+    "css" => ("text/css", false, false),
+    "gif" => ("image/gif", true, false),
+    "ico" => ("image/x-icon", true, false),
+    "html" => (TEXT_HTML, false, false),
+    "htm" => (TEXT_HTML, false, false),
+    "jpe" => (JPEG, true, false),
+    "jpg" => (JPEG, true, false),
+    "jpeg" => (JPEG, true, false),
+    "pdf" => ("application/pdf", true, true),
+    "png" => ("image/png", true, false),
+    "svg" => ("image/svg+xml", false, false),
+    "txt" => ("text/plain", false, false),
+    "xlsx" => ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", true, true)
+};
 
 #[derive(Clone)]
 pub(crate) struct MimeTypeProperties {
@@ -12,7 +28,7 @@ pub(crate) struct MimeTypeProperties {
 }
 
 impl MimeTypeProperties {
-    fn new(content_type: &str, binary: bool, attachment: bool) -> MimeTypeProperties {
+    pub(crate) fn new(content_type: &str, binary: bool, attachment: bool) -> MimeTypeProperties {
         MimeTypeProperties {
             content_type: content_type.to_string(),
             binary: binary,
@@ -29,24 +45,6 @@ impl MimeTypeProperties {
     }
 }
 
-pub(crate) fn generate_mimetype_maps() -> HashMap<String, MimeTypeProperties> {
-    let mut map: HashMap<String, MimeTypeProperties> = HashMap::new();
-    map.insert(String::from("css"), MimeTypeProperties::new("text/css", false, false));
-    map.insert(String::from("gif"), MimeTypeProperties::new("image/gif", true, false));
-    map.insert(String::from("html"), MimeTypeProperties::new(TEXT_HTML, false, false));
-    map.insert(String::from("htm"), MimeTypeProperties::new(TEXT_HTML, false, false));
-    map.insert(String::from("jpe"), MimeTypeProperties::new(JPEG, true, false));
-    map.insert(String::from("jpg"), MimeTypeProperties::new(JPEG, true, false));
-    map.insert(String::from("jpeg"), MimeTypeProperties::new(JPEG, true, false));
-    map.insert(String::from("pdf"), MimeTypeProperties::new("application/pdf", true, true));
-    map.insert(String::from("png"), MimeTypeProperties::new("image/png", true, false));
-    map.insert(String::from("svg"), MimeTypeProperties::new("image/svg+xml", true, false));
-    map.insert(String::from("txt"), MimeTypeProperties::new("text/plain", false, false));
-    map.insert(String::from("xlsx"), MimeTypeProperties::new("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", true, true));
-    let immutable = map.clone();
-    return immutable;
-}
-
 pub(crate) fn extract_extension(file_name: &str) -> Option<String> {
     let bytes = file_name.as_bytes();
     let size = bytes.len();
@@ -60,13 +58,16 @@ pub(crate) fn extract_extension(file_name: &str) -> Option<String> {
     None
 }
 
-pub(crate) fn extract_mime_type(file_name: &str, mime_types: &HashMap<String, MimeTypeProperties>)
+pub(crate) fn extract_mime_type(file_name: &str)
                                 -> MimeTypeProperties {
     let option = extract_extension(file_name);
     match option {
         Some(extension) => {
-            match mime_types.get(extension.as_str()) {
-                Some(s) => { s.clone() }
+            match MIME_TYPES.get(extension.as_str()) {
+                Some(s) => {
+                    let (mime, binary, attachment) = s;
+                    MimeTypeProperties::new(mime, *binary, *attachment)
+                }
                 None => MimeTypeProperties::default_extension()
             }
         }
@@ -106,8 +107,7 @@ mod tests {
     }
 
     fn test_mime_conversion(file_name: &str, expected: &str) {
-        let map = generate_mimetype_maps();
-        let mime_type = extract_mime_type(file_name, &map);
+        let mime_type = extract_mime_type(file_name);
         assert_eq!(mime_type.content_type, expected);
     }
 }
