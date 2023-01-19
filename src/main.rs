@@ -16,7 +16,7 @@ mod string_operations;
 const STATUS_OK: &'static str = "HTTP/1.1 200 OK";
 const STATUS_BAD_REQUEST: &'static str = "HTTP/1.1 400 Bad Request";
 const STATUS_NOT_FOUND: &'static str = "HTTP/1.1 404 Not Found";
-const SERVER_NAME: &'static str = "Gil Fernandes HTTP";
+const SERVER_NAME: &'static str = "Gil HTTP";
 
 lazy_static! {
     static ref ROOT_FOLDER: String = var("ROOT_FOLDER").unwrap_or("root".to_string());
