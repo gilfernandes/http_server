@@ -10,3 +10,4 @@ nom = "7.1.1"
 fancy-regex = "0.10.0"
 phf = { version = "0.11", features = ["macros"] }
 lazy_static = "1.4.0"
+linked-hash-map = "0.5.6"

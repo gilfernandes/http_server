@@ -3,6 +3,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use http_server::ThreadPool;
 use lazy_static::lazy_static;
+use linked_hash_map::LinkedHashMap;
 
 use crate::http_parser::request_line;
 use crate::mime_type_map::{extract_mime_type, MimeTypeProperties, TEXT_HTML};
@@ -15,6 +16,7 @@ mod string_operations;
 const STATUS_OK: &'static str = "HTTP/1.1 200 OK";
 const STATUS_BAD_REQUEST: &'static str = "HTTP/1.1 400 Bad Request";
 const STATUS_NOT_FOUND: &'static str = "HTTP/1.1 404 Not Found";
+const SERVER_NAME: &'static str = "Gil Fernandes HTTP";
 
 lazy_static! {
     static ref ROOT_FOLDER: String = var("ROOT_FOLDER").unwrap_or("root".to_string());
@@ -48,7 +50,9 @@ fn main() {
         }
         let rl = http_request[0].clone();
         let (_, request_line_option) = request_line(rl.as_bytes()).unwrap();
-        println!("Request: {:#?}", rl);
+        for header in http_request.iter() {
+            println!(":: {:#?}", header);
+        }
         match request_line_option {
             Some(request_line_content) => {
                 let uri = replace_slash(request_line_content.uri);
@@ -107,13 +111,11 @@ fn main() {
             Ok(content) => {
                 let bytes = &content[..];
                 let length = bytes.len();
-                let (status_line, content_length, content_type) =
+                let header_map =
                     generate_status_headers(STATUS_OK, length, mime_type.as_str());
                 let response = generate_binary_status_line(
                     uri,
-                    status_line,
-                    content_length,
-                    content_type,
+                    header_map,
                     mime_type_properties
                 );
                 let header_bytes = response.as_bytes();
@@ -127,15 +129,16 @@ fn main() {
         }
     }
 
-    fn generate_binary_status_line(uri: String, status_line: String, content_length: String, content_type: String,
+    fn generate_binary_status_line(uri: String, header_map: LinkedHashMap<String, String>,
                                    mime_type_properties: &MimeTypeProperties) -> String {
         let attachment = &mime_type_properties.attachment;
+        let concatenated_headers_str = concatenate_headers(&header_map);
         if *attachment {
             let file_name = extract_file_name(uri);
             let content_disposition = format!("Content-Disposition: attachment; filename=\"{file_name}\"\r\n");
-            format!("{status_line}{content_disposition}{content_length}{content_type}\r\n").to_string()
+            format!("{concatenated_headers_str}{content_disposition}\r\n").to_string()
         } else {
-            format!("{status_line}{content_length}{content_type}\r\n").to_string()
+            format!("{concatenated_headers_str}\r\n").to_string()
         }
     }
 }
@@ -154,15 +157,36 @@ fn stream_text(stream: &mut TcpStream,
                mime_type: &str
 ) {
     let length = contents.len();
-    let (status_line, content_length, content_type) = generate_status_headers(status_line, length, mime_type);
-    let response = format!("{status_line}{content_length}{content_type}\r\n{contents}");
+    let header_map = generate_status_headers(status_line, length, mime_type);
+
+    let concatenated_headers_str = concatenate_headers(&header_map);
+
+    let response = format!("{concatenated_headers_str}\r\n{contents}");
     let bytes = response.as_bytes();
     stream.write_all(bytes).unwrap();
 }
 
-fn generate_status_headers(status_line: &str, length: usize, mime_type: &str) -> (String, String, String) {
+fn concatenate_headers(header_map: &LinkedHashMap<String, String>) -> String{
+    let header_vec = Vec::from_iter(header_map.values());
+    return header_vec.iter()
+        .map( |x| (*x).to_string())
+        .collect::<Vec<_>>().join("");
+}
+
+fn generate_status_headers(status_line: &str, length: usize, mime_type: &str) -> LinkedHashMap<String, String> {
     let status_line = format!("{status_line}\r\n");
     let content_length = format!("Content-Length: {length}\r\n");
     let content_type = format!("Content-Type: {mime_type}; charset=utf-8\r\n");
-    return (status_line, content_length, content_type);
+    let cache_control = format!("Cache-Control: public, max-age=120\r\n");
+    let server = format!("Server: {SERVER_NAME}\r\n");
+
+    let mut status_headers_map = LinkedHashMap::new();
+    status_headers_map.insert(String::from("status_line"), status_line);
+    status_headers_map.insert(String::from("content_length"), content_length);
+    status_headers_map.insert(String::from("content_type"), content_type);
+    status_headers_map.insert(String::from("cache_control"), cache_control);
+    status_headers_map.insert(String::from("server"), server);
+
+    return status_headers_map.clone();
 }
+
