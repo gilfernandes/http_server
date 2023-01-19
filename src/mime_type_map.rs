@@ -6,6 +6,7 @@ pub(crate) const JPEG: &'static str = "image/jpeg";
 
 static MIME_TYPES: Map<&'static str, (&'static str, bool, bool)> = phf_map! {
     "css" => ("text/css", false, false),
+    "doc" => ("application/msword", true, true),
     "gif" => ("image/gif", true, false),
     "ico" => ("image/x-icon", true, false),
     "html" => (TEXT_HTML, false, false),
