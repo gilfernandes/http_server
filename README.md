@@ -2,7 +2,7 @@ Gil HTTP Server
 ---------------
 
 Tiny HTTP server implementation in Rust which should consist of a single file with multi threading support.
-Only supports GET requests for now.
+Only supports GET and HEAD requests for now.
 
 ### Building
 
