@@ -38,6 +38,7 @@ fn vchar_i(i: &[u8]) -> IResult<&[u8], &[u8]> {
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum Method {
     Get,
+    Head,
     Custom(String),
 }
 
@@ -45,6 +46,8 @@ impl Method {
     pub fn new(s: &[u8]) -> Method {
         if compare_no_case(s, b"GET") {
             Method::Get
+        } else if compare_no_case(s, b"HEAD") {
+            Method::Head
         } else {
             Method::Custom(String::from(unsafe { str::from_utf8_unchecked(s) }))
         }
@@ -55,6 +58,7 @@ impl fmt::Display for Method {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Method::Get => write!(f, "GET"),
+            Method::Head => write!(f, "HEAD"),
             Method::Custom(s) => write!(f, "{}", s),
         }
     }
