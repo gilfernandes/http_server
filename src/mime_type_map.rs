@@ -37,7 +37,7 @@ impl MimeTypeProperties {
         }
     }
 
-    fn default_extension() -> MimeTypeProperties {
+    pub(crate) fn default_extension() -> MimeTypeProperties {
         MimeTypeProperties {
             content_type: "application/octet-stream".to_string(),
             binary: true,

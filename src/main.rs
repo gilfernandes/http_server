@@ -9,12 +9,14 @@ use linked_hash_map::LinkedHashMap;
 use http_server::ThreadPool;
 
 use crate::http_parser::{Method, request_line};
+use crate::http_struct::HttpData;
 use crate::mime_type_map::{extract_mime_type, MimeTypeProperties, TEXT_HTML};
 use crate::string_operations::{extract_file_name, remove_double_slash, replace_slash};
 
 mod http_parser;
 mod mime_type_map;
 mod string_operations;
+mod http_struct;
 
 const STATUS_OK: &'static str = "HTTP/1.1 200 OK";
 const STATUS_BAD_REQUEST: &'static str = "HTTP/1.1 400 Bad Request";
@@ -68,13 +70,28 @@ fn main() {
                         println!("Requested resource: {:#?}. Mime type: {}", uri, mime_type_map.content_type);
                         let is_head = request_line_content.method == Method::Head;
                         if mime_type_map.binary {
-                            process_binary_content(&mut stream, uri, &mime_type_map, &is_head);
+                            process_binary_content(HttpData {
+                                stream: &mut stream,
+                                uri,
+                                mime_type_map: &mime_type_map,
+                                is_head: &is_head,
+                            });
                         } else {
-                            process_text_content(&mut stream, uri, mime_type_map.content_type, &is_head);
+                            process_text_content(HttpData {
+                                stream: &mut stream,
+                                uri,
+                                mime_type_map: &mime_type_map,
+                                is_head: &is_head,
+                            });
                         }
                     }
                     _ => {
-                        send_error_response(&mut stream, "method_not_allowed.html", STATUS_METHOD_NOT_ALLOWED);
+                        send_error_response(HttpData {
+                            stream: &mut stream,
+                            uri: "".to_string(),
+                            mime_type_map: &MimeTypeProperties::default_extension(),
+                            is_head: &false,
+                        }, "method_not_allowed.html", STATUS_METHOD_NOT_ALLOWED);
                     }
                 }
             }
@@ -85,19 +102,32 @@ fn main() {
     }
 }
 
-fn process_text_content(mut stream: &mut TcpStream, uri: String, mime_type: String, is_head: &bool) {
-    let path = build_path(uri);
-    let res = fs::read_to_string(path);
-
-    match res {
-        Ok(contents) => {
-            stream_text(&mut stream,
-                        STATUS_OK,
-                        contents.as_str(), mime_type.as_str(),
-                        is_head);
+fn process_text_content(http_data: HttpData) {
+    let HttpData {
+        stream,
+        uri,
+        mime_type_map,
+        is_head
+    } = http_data;
+    let path = build_path(uri.clone());
+    let result_file = File::open(path);
+    match result_file {
+        Ok(path) => {
+            let res = io::read_to_string(BufReader::new(path));
+            match res {
+                Ok(contents) => {
+                    stream_text(stream,
+                                STATUS_OK,
+                                contents.as_str(), mime_type_map.content_type.as_str(),
+                                is_head);
+                }
+                Err(_) => {
+                    not_found(HttpData { stream, uri: uri.clone(), mime_type_map, is_head });
+                }
+            }
         }
         Err(_) => {
-            not_found(&mut stream);
+            not_found(HttpData { stream, uri: uri.clone(), mime_type_map, is_head });
         }
     }
 }
@@ -111,16 +141,16 @@ fn build_path(uri: String) -> String {
     path
 }
 
-fn send_error_response(mut stream: &mut TcpStream, html_file: &str, status: &str) {
+fn send_error_response(http_data: HttpData, html_file: &str, status: &str) {
+    let HttpData { stream, is_head, .. } = http_data;
     let request_file = format!("./{}/{html_file}", *ROOT_FOLDER);
     let result_file = File::open(request_file);
     match result_file {
         Ok(file) => {
-            let reader = BufReader::new(file);
-            let buf_result = io::read_to_string(reader);
+            let buf_result = io::read_to_string(BufReader::new(file));
             match buf_result {
                 Ok(contents) => {
-                    stream_text(&mut stream, status, contents.as_str(), TEXT_HTML, &false);
+                    stream_text(stream, status, contents.as_str(), TEXT_HTML, is_head);
                 }
                 Err(e) => {
                     println!("Cannot find file {html_file}: {:?}", e);
@@ -133,12 +163,17 @@ fn send_error_response(mut stream: &mut TcpStream, html_file: &str, status: &str
     }
 }
 
-fn not_found(mut stream: &mut &mut TcpStream) {
-    send_error_response(&mut stream, "not_found.html", STATUS_NOT_FOUND);
+fn not_found(http_data: HttpData) {
+    send_error_response(http_data, "not_found.html", STATUS_NOT_FOUND);
 }
 
-fn process_binary_content(mut stream: &mut TcpStream, uri: String, mime_type_properties: &MimeTypeProperties,
-                          is_head: &bool) {
+fn process_binary_content(http_data: HttpData) {
+    let HttpData {
+        stream,
+        uri,
+        mime_type_map: mime_type_properties,
+        is_head
+    } = http_data;
     let res = fs::read(format!("./{}/{}", *ROOT_FOLDER, uri).as_str());
     let mime_type = &mime_type_properties.content_type;
 
@@ -147,19 +182,28 @@ fn process_binary_content(mut stream: &mut TcpStream, uri: String, mime_type_pro
             let bytes = &content[..];
             let length = bytes.len();
             let header_map =
-                generate_status_headers(STATUS_OK, length, mime_type.as_str());
+                generate_status_headers(STATUS_OK, length, mime_type.as_str(), &mime_type_properties.binary);
             let response = generate_binary_status_line(
                 uri,
                 header_map,
                 mime_type_properties,
             );
             let header_bytes = response.as_bytes();
-            let concat_vec = [header_bytes, bytes].concat();
-            let concat_bytes = &concat_vec[..];
-            stream.write_all(concat_bytes).unwrap();
+            if *is_head {
+                stream.write_all(header_bytes).unwrap();
+            } else {
+                let concat_vec = [header_bytes, bytes].concat();
+                let concat_bytes = &concat_vec[..];
+                stream.write_all(concat_bytes).unwrap();
+            }
         }
         Err(_) => {
-            not_found(&mut stream);
+            not_found(HttpData {
+                stream,
+                uri: uri.clone(),
+                mime_type_map: mime_type_properties,
+                is_head
+            });
         }
     }
 }
@@ -191,7 +235,7 @@ fn stream_text(stream: &mut TcpStream,
                is_head: &bool,
 ) {
     let length = contents.len();
-    let header_map = generate_status_headers(status_line, length, mime_type);
+    let header_map = generate_status_headers(status_line, length, mime_type, is_head);
 
     let concatenated_headers_str = concatenate_headers(&header_map);
 
@@ -208,10 +252,11 @@ fn concatenate_headers(header_map: &LinkedHashMap<String, String>) -> String {
         .collect::<Vec<_>>().join("");
 }
 
-fn generate_status_headers(status_line: &str, length: usize, mime_type: &str) -> LinkedHashMap<String, String> {
+fn generate_status_headers(status_line: &str, length: usize, mime_type: &str, is_binary: &bool) -> LinkedHashMap<String, String> {
     let status_line = format!("{status_line}\r\n");
     let content_length = format!("Content-Length: {length}\r\n");
-    let content_type = format!("Content-Type: {mime_type}; charset=utf-8\r\n");
+    let content_type = if *is_binary { format!("Content-Type: {mime_type}\r\n") }
+        else { format!("Content-Type: {mime_type}; charset=utf-8\r\n") };
     let cache_control = format!("Cache-Control: public, max-age=120\r\n");
     let server = format!("Server: {SERVER_NAME}\r\n");
 
