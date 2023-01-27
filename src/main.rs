@@ -3,11 +3,13 @@ use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 
+use clap::Parser;
 use lazy_static::lazy_static;
 use linked_hash_map::LinkedHashMap;
 
 use http_server::ThreadPool;
 
+use crate::args::{HttpServerArgs, Mode, RunCommand};
 use crate::http_parser::{Method, request_line};
 use crate::http_struct::HttpData;
 use crate::mime_type_map::{extract_mime_type, MimeTypeProperties, TEXT_HTML};
@@ -17,6 +19,7 @@ mod http_parser;
 mod mime_type_map;
 mod string_operations;
 mod http_struct;
+mod args;
 
 const STATUS_OK: &'static str = "HTTP/1.1 200 OK";
 const STATUS_BAD_REQUEST: &'static str = "HTTP/1.1 400 Bad Request";
@@ -29,7 +32,19 @@ lazy_static! {
 }
 
 fn main() {
-    let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
+    let args = HttpServerArgs::parse();
+    let mode = args.mode;
+    match mode {
+        Mode::Run(run_args) => {
+            println!("Running on {} {}", run_args.host, run_args.port);
+            run_server(&run_args);
+        }
+        Mode::Info(_) => {}
+    }
+}
+
+fn run_server(run_args: &RunCommand) {
+    let listener = TcpListener::bind(format!("{}:{}", &run_args.host, &run_args.port)).unwrap();
     let pool = ThreadPool::new(10);
 
     for stream_result in listener.incoming() {
@@ -202,7 +217,7 @@ fn process_binary_content(http_data: HttpData) {
                 stream,
                 uri: uri.clone(),
                 mime_type_map: mime_type_properties,
-                is_head
+                is_head,
             });
         }
     }
@@ -239,8 +254,7 @@ fn stream_text(stream: &mut TcpStream,
 
     let concatenated_headers_str = concatenate_headers(&header_map);
 
-    let response = if *is_head { format!("{concatenated_headers_str}\r\n") }
-        else { format!("{concatenated_headers_str}\r\n{contents}") };
+    let response = if *is_head { format!("{concatenated_headers_str}\r\n") } else { format!("{concatenated_headers_str}\r\n{contents}") };
     let bytes = response.as_bytes();
     stream.write_all(bytes).unwrap();
 }
@@ -255,8 +269,7 @@ fn concatenate_headers(header_map: &LinkedHashMap<String, String>) -> String {
 fn generate_status_headers(status_line: &str, length: usize, mime_type: &str, is_binary: &bool) -> LinkedHashMap<String, String> {
     let status_line = format!("{status_line}\r\n");
     let content_length = format!("Content-Length: {length}\r\n");
-    let content_type = if *is_binary { format!("Content-Type: {mime_type}\r\n") }
-        else { format!("Content-Type: {mime_type}; charset=utf-8\r\n") };
+    let content_type = if *is_binary { format!("Content-Type: {mime_type}\r\n") } else { format!("Content-Type: {mime_type}; charset=utf-8\r\n") };
     let cache_control = format!("Cache-Control: public, max-age=120\r\n");
     let server = format!("Server: {SERVER_NAME}\r\n");
 
