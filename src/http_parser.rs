@@ -15,7 +15,7 @@ fn is_token_char(i: u8) -> bool {
     is_alphanumeric(i) || b"!#$%&'*+-.^_`|~".contains(&i)
 }
 
-fn token(i: &[u8]) -> IResult<&[u8], &[u8]> {
+pub(crate) fn token(i: &[u8]) -> IResult<&[u8], &[u8]> {
     take_while(is_token_char)(i)
 }
 
@@ -39,6 +39,7 @@ fn vchar_i(i: &[u8]) -> IResult<&[u8], &[u8]> {
 pub enum Method {
     Get,
     Head,
+    Options,
     Custom(String),
 }
 
@@ -48,7 +49,9 @@ impl Method {
             Method::Get
         } else if compare_no_case(s, b"HEAD") {
             Method::Head
-        } else {
+        } else if compare_no_case(s, b"OPTIONS") {
+            Method::Options
+        }else {
             Method::Custom(String::from(unsafe { str::from_utf8_unchecked(s) }))
         }
     }
@@ -59,6 +62,7 @@ impl fmt::Display for Method {
         match self {
             Method::Get => write!(f, "GET"),
             Method::Head => write!(f, "HEAD"),
+            Method::Options => write!(f, "OPTIONS"),
             Method::Custom(s) => write!(f, "{}", s),
         }
     }

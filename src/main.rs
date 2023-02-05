@@ -5,7 +5,7 @@ use std::net::{TcpListener, TcpStream};
 
 use clap::Parser;
 use lazy_static::lazy_static;
-use linked_hash_map::LinkedHashMap;
+use linked_hash_set::LinkedHashSet;
 
 use http_server::ThreadPool;
 
@@ -20,11 +20,13 @@ mod mime_type_map;
 mod string_operations;
 mod http_struct;
 mod args;
+mod header_parser;
 
 const STATUS_OK: &'static str = "HTTP/1.1 200 OK";
 const STATUS_BAD_REQUEST: &'static str = "HTTP/1.1 400 Bad Request";
 const STATUS_NOT_FOUND: &'static str = "HTTP/1.1 404 Not Found";
 const STATUS_METHOD_NOT_ALLOWED: &'static str = "HTTP/1.1 405 Method Not Allowed";
+const STATUS_NO_CONTENT: &'static str = "HTTP/1.1 204 No Content";
 const SERVER_NAME: &'static str = "Gil HTTP";
 
 lazy_static! {
@@ -45,7 +47,7 @@ fn main() {
 
 fn run_server(run_args: &RunCommand) {
     let listener = TcpListener::bind(format!("{}:{}", &run_args.host, &run_args.port)).unwrap();
-    let pool = ThreadPool::new(10);
+    let pool = ThreadPool::new(run_args.pool_size);
 
     for stream_result in listener.incoming() {
         let stream = stream_result.unwrap();
@@ -99,6 +101,11 @@ fn run_server(run_args: &RunCommand) {
                                 is_head: &is_head,
                             });
                         }
+                    }
+                    Method::Options => {
+                        let uri = replace_slash(request_line_content.uri);
+                        println!("Requested resource: {:#?}", uri);
+                        stream_text_function(&mut stream, "", "", "", &true, generate_option_headers);
                     }
                     _ => {
                         send_error_response(HttpData {
@@ -223,7 +230,7 @@ fn process_binary_content(http_data: HttpData) {
     }
 }
 
-fn generate_binary_status_line(uri: String, header_map: LinkedHashMap<String, String>,
+fn generate_binary_status_line(uri: String, header_map: LinkedHashSet<String>,
                                mime_type_properties: &MimeTypeProperties) -> String {
     let attachment = &mime_type_properties.attachment;
     let concatenated_headers_str = concatenate_headers(&header_map);
@@ -249,37 +256,64 @@ fn stream_text(stream: &mut TcpStream,
                mime_type: &str,
                is_head: &bool,
 ) {
+    stream_text_function(stream, status_line, contents, mime_type, is_head, generate_status_headers);
+}
+
+fn stream_text_function(stream: &mut TcpStream,
+                        status_line: &str,
+                        contents: &str,
+                        mime_type: &str,
+                        is_head: &bool,
+                        generate_status_headers: fn(status_line: &str, length: usize, mime_type: &str, is_binary: &bool)
+                            -> LinkedHashSet<String>,
+) {
     let length = contents.len();
     let header_map = generate_status_headers(status_line, length, mime_type, is_head);
 
     let concatenated_headers_str = concatenate_headers(&header_map);
 
-    let response = if *is_head { format!("{concatenated_headers_str}\r\n") } else { format!("{concatenated_headers_str}\r\n{contents}") };
+    let response = if *is_head { format!("{concatenated_headers_str}\r\n") }
+        else { format!("{concatenated_headers_str}\r\n{contents}") };
     let bytes = response.as_bytes();
     stream.write_all(bytes).unwrap();
+
 }
 
-fn concatenate_headers(header_map: &LinkedHashMap<String, String>) -> String {
-    let header_vec = Vec::from_iter(header_map.values());
-    return header_vec.iter()
+fn concatenate_headers(header_map: &LinkedHashSet<String>) -> String {
+    return header_map.iter()
         .map(|x| (*x).to_string())
         .collect::<Vec<_>>().join("");
 }
 
-fn generate_status_headers(status_line: &str, length: usize, mime_type: &str, is_binary: &bool) -> LinkedHashMap<String, String> {
-    let status_line = format!("{status_line}\r\n");
+fn generate_status_headers(status_line: &str, length: usize, mime_type: &str, is_binary: &bool) -> LinkedHashSet<String> {
     let content_length = format!("Content-Length: {length}\r\n");
     let content_type = if *is_binary { format!("Content-Type: {mime_type}\r\n") } else { format!("Content-Type: {mime_type}; charset=utf-8\r\n") };
-    let cache_control = format!("Cache-Control: public, max-age=120\r\n");
-    let server = format!("Server: {SERVER_NAME}\r\n");
+    let (status_line, cache_control, server) = generate_status_with_common_headers(status_line);
 
-    let mut status_headers_map = LinkedHashMap::new();
-    status_headers_map.insert(String::from("status_line"), status_line);
-    status_headers_map.insert(String::from("content_length"), content_length);
-    status_headers_map.insert(String::from("content_type"), content_type);
-    status_headers_map.insert(String::from("cache_control"), cache_control);
-    status_headers_map.insert(String::from("server"), server);
+    let mut status_headers_set = LinkedHashSet::new();
+    status_headers_set.insert(status_line);
+    status_headers_set.insert(content_length);
+    status_headers_set.insert(content_type);
+    status_headers_set.insert(cache_control);
+    status_headers_set.insert(server);
 
-    return status_headers_map.clone();
+    return status_headers_set.clone();
 }
 
+fn generate_option_headers(_: &str, _: usize, _: &str, _: &bool) -> LinkedHashSet<String> {
+    let allow = format!("Allow: OPTIONS, GET, HEAD\r\n");
+    let (status_line, cache_control, server) = generate_status_with_common_headers(STATUS_NO_CONTENT);
+    let mut status_headers_set = LinkedHashSet::new();
+    status_headers_set.insert(status_line);
+    status_headers_set.insert(allow);
+    status_headers_set.insert(cache_control);
+    status_headers_set.insert(server);
+    return status_headers_set.clone();
+}
+
+fn generate_status_with_common_headers(status_line: &str) -> (String, String, String) {
+    let status_line = format!("{status_line}\r\n");
+    let cache_control = format!("Cache-Control: public, max-age=120\r\n");
+    let server = format!("Server: {SERVER_NAME}\r\n");
+    return (status_line, cache_control, server);
+}

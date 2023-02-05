@@ -32,6 +32,9 @@ pub struct RunCommand {
     /// The server host
     #[clap(long)]
     pub host: String,
+
+    #[clap(long, default_value_t = 4)]
+    pub pool_size: usize,
 }
 
 #[derive(Debug, Args)]

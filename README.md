@@ -34,6 +34,19 @@ Options:
 
 ```
 
+The command `run` is the most important one and has the following parameters:
+
+```
+Usage: http_server.exe run [OPTIONS] --port <PORT> --host <HOST>
+
+Options:
+  -p, --port <PORT>            The server port
+      --host <HOST>            The server host
+      --pool-size <POOL_SIZE>  [default: 4]
+  -h, --help                   Print help
+
+```
+
 A typical execution command would be:
 
 ```http_server.exe run --host localhost --port 7878```
