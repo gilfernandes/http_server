@@ -14,6 +14,7 @@ static MIME_TYPES: Map<&'static str, (&'static str, bool, bool)> = phf_map! {
     "jpe" => (JPEG, true, false),
     "jpg" => (JPEG, true, false),
     "jpeg" => (JPEG, true, false),
+    "log" => ("text/plain", false, false),
     "pdf" => ("application/pdf", true, true),
     "png" => ("image/png", true, false),
     "svg" => ("image/svg+xml", false, false),

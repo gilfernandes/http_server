@@ -22,7 +22,7 @@ pub enum Mode {
     Info(InfoCommand),
 }
 
-#[derive(Debug, Args)]
+#[derive(Debug, Args, Clone)]
 pub struct RunCommand {
 
     /// The server port
@@ -33,8 +33,13 @@ pub struct RunCommand {
     #[clap(long)]
     pub host: String,
 
+    // The size of the thread pool
     #[clap(long, default_value_t = 4)]
     pub pool_size: usize,
+
+    /// The root folder
+    #[clap(long, default_value_t = String::from("root"))]
+    pub root_folder: String,
 }
 
 #[derive(Debug, Args)]

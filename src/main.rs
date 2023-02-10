@@ -29,9 +29,9 @@ const STATUS_METHOD_NOT_ALLOWED: &'static str = "HTTP/1.1 405 Method Not Allowed
 const STATUS_NO_CONTENT: &'static str = "HTTP/1.1 204 No Content";
 const SERVER_NAME: &'static str = "Gil HTTP";
 
-lazy_static! {
-    static ref ROOT_FOLDER: String = var("ROOT_FOLDER").unwrap_or("root".to_string());
-}
+// lazy_static! {
+//     static ref ROOT_FOLDER: String = var("ROOT_FOLDER").unwrap_or("root".to_string());
+// }
 
 fn main() {
     let args = HttpServerArgs::parse();
@@ -51,15 +51,16 @@ fn run_server(run_args: &RunCommand) {
 
     for stream_result in listener.incoming() {
         let stream = stream_result.unwrap();
-        pool.execute(|| {
-            handle_connection(stream);
+        let run_args_clone = run_args.clone();
+        pool.execute(move || {
+            handle_connection(stream, &run_args_clone);
         });
         println!("Connection established");
     }
 
     println!("Shutting down");
 
-    fn handle_connection(mut stream: TcpStream) {
+    fn handle_connection(mut stream: TcpStream, run_args: &RunCommand) {
         let buf_reader = BufReader::new(&mut stream);
         let http_request: Vec<_> = buf_reader
             .lines()
@@ -68,7 +69,7 @@ fn run_server(run_args: &RunCommand) {
             .collect();
 
         if http_request.is_empty() {
-            send_bad_request(&mut stream);
+            send_bad_request(&mut stream, &run_args.root_folder);
             return;
         }
         let rl = http_request[0].clone();
@@ -86,20 +87,17 @@ fn run_server(run_args: &RunCommand) {
                         let mime_type_map = extract_mime_type(uri.as_str());
                         println!("Requested resource: {:#?}. Mime type: {}", uri, mime_type_map.content_type);
                         let is_head = request_line_content.method == Method::Head;
+                        let http_data = HttpData {
+                            stream: &mut stream,
+                            uri,
+                            mime_type_map: &mime_type_map,
+                            is_head: &is_head,
+                            root_folder: &run_args.root_folder
+                        };
                         if mime_type_map.binary {
-                            process_binary_content(HttpData {
-                                stream: &mut stream,
-                                uri,
-                                mime_type_map: &mime_type_map,
-                                is_head: &is_head,
-                            });
+                            process_binary_content(http_data);
                         } else {
-                            process_text_content(HttpData {
-                                stream: &mut stream,
-                                uri,
-                                mime_type_map: &mime_type_map,
-                                is_head: &is_head,
-                            });
+                            process_text_content(http_data);
                         }
                     }
                     Method::Options => {
@@ -113,12 +111,13 @@ fn run_server(run_args: &RunCommand) {
                             uri: "".to_string(),
                             mime_type_map: &MimeTypeProperties::default_extension(),
                             is_head: &false,
+                            root_folder: &run_args.root_folder
                         }, "method_not_allowed.html", STATUS_METHOD_NOT_ALLOWED);
                     }
                 }
             }
             None => {
-                send_bad_request(&mut stream);
+                send_bad_request(&mut stream, &run_args.root_folder);
             }
         }
     }
@@ -129,9 +128,10 @@ fn process_text_content(http_data: HttpData) {
         stream,
         uri,
         mime_type_map,
-        is_head
+        is_head,
+        root_folder
     } = http_data;
-    let path = build_path(uri.clone());
+    let path = build_path(uri.clone(), root_folder);
     let result_file = File::open(path);
     match result_file {
         Ok(path) => {
@@ -144,18 +144,17 @@ fn process_text_content(http_data: HttpData) {
                                 is_head);
                 }
                 Err(_) => {
-                    not_found(HttpData { stream, uri: uri.clone(), mime_type_map, is_head });
+                    not_found(HttpData { stream, uri: uri.clone(), mime_type_map, is_head, root_folder });
                 }
             }
         }
         Err(_) => {
-            not_found(HttpData { stream, uri: uri.clone(), mime_type_map, is_head });
+            not_found(HttpData { stream, uri: uri.clone(), mime_type_map, is_head, root_folder });
         }
     }
 }
 
-fn build_path(uri: String) -> String {
-    let root_folder = ROOT_FOLDER.as_str().to_string();
+fn build_path(uri: String, root_folder: &String) -> String {
     let path_str = if root_folder.starts_with("/") { format!("/{}/{}", root_folder, uri) } else {
         format!("./{}/{}", root_folder, uri)
     };
@@ -165,7 +164,7 @@ fn build_path(uri: String) -> String {
 
 fn send_error_response(http_data: HttpData, html_file: &str, status: &str) {
     let HttpData { stream, is_head, .. } = http_data;
-    let request_file = format!("./{}/{html_file}", *ROOT_FOLDER);
+    let request_file = format!("./{}/{html_file}", http_data.root_folder);
     let result_file = File::open(request_file);
     match result_file {
         Ok(file) => {
@@ -194,9 +193,10 @@ fn process_binary_content(http_data: HttpData) {
         stream,
         uri,
         mime_type_map: mime_type_properties,
-        is_head
+        is_head,
+        root_folder
     } = http_data;
-    let res = fs::read(format!("./{}/{}", *ROOT_FOLDER, uri).as_str());
+    let res = fs::read(build_path(uri.clone(), root_folder));
     let mime_type = &mime_type_properties.content_type;
 
     match res {
@@ -206,7 +206,7 @@ fn process_binary_content(http_data: HttpData) {
             let header_map =
                 generate_status_headers(STATUS_OK, length, mime_type.as_str(), &mime_type_properties.binary);
             let response = generate_binary_status_line(
-                uri,
+                uri.clone(),
                 header_map,
                 mime_type_properties,
             );
@@ -225,6 +225,7 @@ fn process_binary_content(http_data: HttpData) {
                 uri: uri.clone(),
                 mime_type_map: mime_type_properties,
                 is_head,
+                root_folder
             });
         }
     }
@@ -244,10 +245,28 @@ fn generate_binary_status_line(uri: String, header_map: LinkedHashSet<String>,
 }
 
 
-fn send_bad_request(mut stream: &mut TcpStream) {
-    let bad_request = format!("./{}/bad_request.html", *ROOT_FOLDER);
-    let contents = fs::read_to_string(bad_request.as_str()).expect("Cannot find bad request html.");
-    stream_text(&mut stream, STATUS_BAD_REQUEST, contents.as_str(), TEXT_HTML, &false);
+fn send_bad_request(mut stream: &mut TcpStream, root_folder: &String) {
+    let bad_request = build_path("./{}/bad_request.html".to_string(), root_folder);
+    let result = fs::read_to_string(bad_request.as_str());
+    match result {
+        Ok(contents) => {
+            stream_text(&mut stream, STATUS_BAD_REQUEST, contents.as_str(), TEXT_HTML, &false);
+        }
+        Err(_) => {
+            let contents = "<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"utf-8\">
+    <title>Bad request!</title>
+</head>
+<body>
+<h1>Bad Request!</h1>
+<p>400 - Your request could not be understood by the server</p>
+</body>
+</html>";
+            stream_text(&mut stream, STATUS_BAD_REQUEST, contents, TEXT_HTML, &false);
+        }
+    }
 }
 
 fn stream_text(stream: &mut TcpStream,

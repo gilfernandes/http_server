@@ -36,19 +36,22 @@ pub(crate) fn message_header(i: &[u8]) -> IResult<&[u8], Header> {
 
 #[cfg(test)]
 mod tests {
+    use nom::combinator::fail;
     use super::*;
 
     #[test]
     fn when_message_header_should_produce_header() {
-        let header = "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+        let header = "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\n";
         let bytes = header.as_bytes();
         let result = message_header(bytes);
         match result {
             Ok(header) => {
                 assert_eq!(header.1.name, "Accept".to_string().into_bytes());
-                assert_eq!(header.1.value, "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8".to_string().into_bytes())
+                assert_eq!(header.1.value, "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8".to_string().into_bytes())
             }
-            Err(_) => {}
+            Err(_) => {
+                assert!(false);
+            }
         }
     }
 }
