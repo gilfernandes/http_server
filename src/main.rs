@@ -111,8 +111,19 @@ fn run_server(run_args: &RunCommand) {
                             uri: "".to_string(),
                             mime_type_map: &MimeTypeProperties::default_extension(),
                             is_head: &false,
-                            root_folder: &run_args.root_folder
-                        }, "method_not_allowed.html", STATUS_METHOD_NOT_ALLOWED);
+                            root_folder: &run_args.root_folder,
+                        }, "method_not_allowed.html", STATUS_METHOD_NOT_ALLOWED,
+                                            "<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"utf-8\">
+    <title>Method Not Allowed!</title>
+</head>
+<body>
+<h1>Method not allowed!</h1>
+<p>400 - The method you tried is not allowed</p>
+</body>
+</html>");
                     }
                 }
             }
@@ -162,7 +173,8 @@ fn build_path(uri: String, root_folder: &String) -> String {
     path
 }
 
-fn send_error_response(http_data: HttpData, html_file: &str, status: &str) {
+fn send_error_response(http_data: HttpData, html_file: &str,
+                       status: &str, missing_html: &str) {
     let HttpData { stream, is_head, .. } = http_data;
     let request_file = format!("./{}/{html_file}", http_data.root_folder);
     let result_file = File::open(request_file);
@@ -175,17 +187,31 @@ fn send_error_response(http_data: HttpData, html_file: &str, status: &str) {
                 }
                 Err(e) => {
                     println!("Cannot find file {html_file}: {:?}", e);
+                    stream_text(stream, status, missing_html, TEXT_HTML, is_head);
                 }
             }
         }
         Err(e) => {
             println!("Cannot find file {html_file}: {:?}", e);
+            stream_text(stream, status, missing_html, TEXT_HTML, is_head);
         }
     }
 }
 
 fn not_found(http_data: HttpData) {
-    send_error_response(http_data, "not_found.html", STATUS_NOT_FOUND);
+    let uri = http_data.uri.clone();
+    send_error_response(http_data, "not_found.html", STATUS_NOT_FOUND,
+                        format!("<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"utf-8\">
+    <title>Not found!</title>
+</head>
+<body>
+<h1>File {} Not Found!</h1>
+<p>404 - Cannot find resource in folder</p>
+</body>
+</html>", uri).as_str());
 }
 
 fn process_binary_content(http_data: HttpData) {
