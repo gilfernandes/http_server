@@ -1,18 +1,19 @@
-use std::{env::var, fs, io};
+use std::{fs, io};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
+use std::path::PathBuf;
 
 use clap::Parser;
-use lazy_static::lazy_static;
 use linked_hash_set::LinkedHashSet;
 
 use http_server::ThreadPool;
 
 use crate::args::{HttpServerArgs, Mode, RunCommand};
+use crate::folder_operations::{build_path, is_folder, list_folder};
 use crate::http_parser::{Method, request_line};
 use crate::http_struct::HttpData;
-use crate::mime_type_map::{extract_mime_type, MimeTypeProperties, TEXT_HTML};
+use crate::mime_type_map::{extract_extension, extract_mime_type, MimeTypeProperties, TEXT_HTML};
 use crate::string_operations::{extract_file_name, remove_double_slash, replace_slash};
 
 mod http_parser;
@@ -21,6 +22,7 @@ mod string_operations;
 mod http_struct;
 mod args;
 mod header_parser;
+mod folder_operations;
 
 const STATUS_OK: &'static str = "HTTP/1.1 200 OK";
 const STATUS_BAD_REQUEST: &'static str = "HTTP/1.1 400 Bad Request";
@@ -28,10 +30,6 @@ const STATUS_NOT_FOUND: &'static str = "HTTP/1.1 404 Not Found";
 const STATUS_METHOD_NOT_ALLOWED: &'static str = "HTTP/1.1 405 Method Not Allowed";
 const STATUS_NO_CONTENT: &'static str = "HTTP/1.1 204 No Content";
 const SERVER_NAME: &'static str = "Gil HTTP";
-
-// lazy_static! {
-//     static ref ROOT_FOLDER: String = var("ROOT_FOLDER").unwrap_or("root".to_string());
-// }
 
 fn main() {
     let args = HttpServerArgs::parse();
@@ -79,12 +77,17 @@ fn run_server(run_args: &RunCommand) {
             println!(":: {:#?}", header);
         }
 
+        let root_folder = &run_args.root_folder;
+
         match request_line_option {
             Some(request_line_content) => {
                 match request_line_content.method {
                     Method::Get | Method::Head => {
                         let uri = replace_slash(request_line_content.uri);
-                        let mime_type_map = extract_mime_type(uri.as_str());
+                        let extension_option = extract_extension(uri.as_str());
+                        let built_path = build_path(uri.clone(), root_folder);
+                        let folder_option = is_folder(built_path);
+                        let mime_type_map = extract_mime_type(extension_option);
                         println!("Requested resource: {:#?}. Mime type: {}", uri, mime_type_map.content_type);
                         let is_head = request_line_content.method == Method::Head;
                         let http_data = HttpData {
@@ -92,12 +95,19 @@ fn run_server(run_args: &RunCommand) {
                             uri,
                             mime_type_map: &mime_type_map,
                             is_head: &is_head,
-                            root_folder: &run_args.root_folder
+                            root_folder: root_folder
                         };
-                        if mime_type_map.binary {
-                            process_binary_content(http_data);
-                        } else {
-                            process_text_content(http_data);
+                        match folder_option {
+                            Some(folder) => {
+                                process_folder_response(http_data, folder);
+                            }
+                            None => {
+                                if mime_type_map.binary {
+                                    process_binary_content(http_data);
+                                } else {
+                                    process_text_content(http_data);
+                                }
+                            }
                         }
                     }
                     Method::Options => {
@@ -165,12 +175,14 @@ fn process_text_content(http_data: HttpData) {
     }
 }
 
-fn build_path(uri: String, root_folder: &String) -> String {
-    let path_str = if root_folder.starts_with("/") { format!("/{}/{}", root_folder, uri) } else {
-        format!("./{}/{}", root_folder, uri)
-    };
-    let path = remove_double_slash(path_str.as_str());
-    path
+fn process_folder_response(http_data: HttpData, dir: PathBuf) {
+    let stream = http_data.stream;
+    let is_head = http_data.is_head;
+    let folder_response = list_folder(dir);
+    stream_text(stream,
+                STATUS_OK,
+                folder_response.as_str(), TEXT_HTML,
+                is_head);
 }
 
 fn send_error_response(http_data: HttpData, html_file: &str,

@@ -36,7 +36,6 @@ pub(crate) fn message_header(i: &[u8]) -> IResult<&[u8], Header> {
 
 #[cfg(test)]
 mod tests {
-    use nom::combinator::fail;
     use super::*;
 
     #[test]

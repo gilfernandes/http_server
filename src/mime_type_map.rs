@@ -19,6 +19,7 @@ static MIME_TYPES: Map<&'static str, (&'static str, bool, bool)> = phf_map! {
     "png" => ("image/png", true, false),
     "svg" => ("image/svg+xml", false, false),
     "txt" => ("text/plain", false, false),
+    "webp" => ("image/webp", true, false),
     "xlsx" => ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", true, true)
 };
 
@@ -54,16 +55,15 @@ pub(crate) fn extract_extension(file_name: &str) -> Option<String> {
     for (i, el) in bytes.iter().rev().enumerate() {
         if *el == DOT {
             let slice = &bytes[size - i..size];
-            return Some(from_utf8(slice).unwrap().to_string());
+            return Some(from_utf8(slice).unwrap().to_string().to_lowercase());
         }
     }
     None
 }
 
-pub(crate) fn extract_mime_type(file_name: &str)
+pub(crate) fn extract_mime_type(extension_option: Option<String>)
                                 -> MimeTypeProperties {
-    let option = extract_extension(file_name);
-    match option {
+    match extension_option {
         Some(extension) => {
             match MIME_TYPES.get(extension.as_str()) {
                 Some(s) => {
@@ -109,7 +109,8 @@ mod tests {
     }
 
     fn test_mime_conversion(file_name: &str, expected: &str) {
-        let mime_type = extract_mime_type(file_name);
+        let extension_option = extract_extension(file_name);
+        let mime_type = extract_mime_type(extension_option);
         assert_eq!(mime_type.content_type, expected);
     }
 }
