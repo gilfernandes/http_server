@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use chrono::{DateTime, Local, TimeZone};
 
 use crate::remove_double_slash;
 
@@ -7,7 +8,8 @@ const DEFAULT_FILE_NAME: &'static str = "unknown";
 struct FileData {
     file_name: String,
     file_size: u64,
-    is_dir: bool
+    is_dir: bool,
+    create_date: String
 }
 
 pub(crate) fn build_path(uri: String, root_folder: &String) -> String {
@@ -66,17 +68,35 @@ fn create_key(file_data: &FileData) -> String {
 }
 
 fn print_table_row(folder_name: &str, file_data: &FileData) -> String {
-    let f = &file_data.file_name;
-    let file_size = &file_data.file_size;
-    format!("<tr><td>{file_size}</td><td><a href='{folder_name}/{f}'>{f}</a></td></tr>")
+    match file_data {
+        FileData{ file_name, file_size, create_date, .. } => {
+            format!("\
+                <tr>\
+                    <td align='right'>{file_size}</td>\
+                    <td align='right'>{create_date}</td>\
+                    <td><a href='{folder_name}/{file_name}'>{file_name}</a></td>\
+                </tr>")
+        }
+    }
 }
 
 fn adapt_file_data(path_buf: &PathBuf, file_name: &str) -> Option<FileData> {
     let metadata = path_buf.metadata().ok()?;
+    let created_res = metadata.created();
+    let mut created_str = "".to_string();
+
+    match created_res {
+        Ok(system_time) => {
+            let date_time: DateTime<Local> = system_time.into();
+            created_str = date_time.format("%b %e %Y").to_string();
+        }
+        Err(e) => {}
+    }
     return Some(FileData {
         file_size: metadata.len(),
         file_name: file_name.to_string(),
-        is_dir: path_buf.is_dir()
+        is_dir: path_buf.is_dir(),
+        create_date: created_str
     });
 }
 
