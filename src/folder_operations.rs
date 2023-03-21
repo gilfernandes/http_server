@@ -62,7 +62,7 @@ pub(crate) fn list_folder(pb: PathBuf, root_folder: &String) -> String {
     buffered += "<table>";
     files_vec.sort_by(|a, b| create_key(a).cmp(&create_key(b)));
     for f in files_vec {
-        buffered += print_table_row(&f).as_str();
+        buffered += print_table_row(folder_name, &f).as_str();
     }
     buffered += "</table>";
     buffered += "</body></html>";
@@ -74,7 +74,7 @@ fn create_key(file_data: &FileData) -> String {
     return format!("{}_{}", marker, file_data.file_name);
 }
 
-fn print_table_row(file_data: &FileData) -> String {
+fn print_table_row(folder_name: &str, file_data: &FileData) -> String {
     match file_data {
         FileData { file_name, file_size, create_date, is_dir, modified_date } => {
             let folder_char = if *is_dir { "&#x1F4C1;" } else { "&#128196;" };
