@@ -322,7 +322,7 @@ fn stream_text_function(stream: &mut TcpStream,
                         mime_type: &str,
                         is_head: &bool,
                         generate_status_headers: fn(status_line: &str, length: usize, mime_type: &str, is_binary: &bool)
-                            -> LinkedHashSet<String>,
+                                                    -> LinkedHashSet<String>,
 ) {
     let length = contents.len();
     let header_map = generate_status_headers(status_line, length, mime_type, is_head);
@@ -330,7 +330,7 @@ fn stream_text_function(stream: &mut TcpStream,
     let concatenated_headers_str = concatenate_headers(&header_map);
 
     let response = if *is_head { format!("{concatenated_headers_str}\r\n") }
-        else { format!("{concatenated_headers_str}\r\n{contents}") };
+    else { format!("{concatenated_headers_str}\r\n{contents}") };
     let bytes = response.as_bytes();
     stream.write_all(bytes).unwrap();
 

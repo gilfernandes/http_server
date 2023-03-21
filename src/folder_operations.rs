@@ -1,5 +1,7 @@
 use std::path::PathBuf;
-use chrono::{DateTime, Local, TimeZone};
+use fancy_regex::Regex;
+
+use chrono::{Datelike, DateTime, Local, TimeZone, Utc};
 
 use crate::remove_double_slash;
 
@@ -9,7 +11,7 @@ struct FileData {
     file_name: String,
     file_size: u64,
     is_dir: bool,
-    create_date: String
+    create_date: String,
 }
 
 pub(crate) fn build_path(uri: String, root_folder: &String) -> String {
@@ -27,6 +29,7 @@ pub(crate) fn is_folder(built_path: String) -> Option<PathBuf> {
 pub(crate) fn list_folder(pb: PathBuf) -> String {
     let files = pb.read_dir().unwrap();
     let folder_name = pb.file_name().and_then(|name| name.to_str()).unwrap_or(DEFAULT_FILE_NAME);
+    println!("folder_name: {folder_name}");
     let mut buffered = format!("
 <html>
     <head>
@@ -64,14 +67,16 @@ pub(crate) fn list_folder(pb: PathBuf) -> String {
 
 fn create_key(file_data: &FileData) -> String {
     let marker = if file_data.is_dir { "d" } else { "f" };
-    return format!("{}_{}", marker, file_data.file_name)
+    return format!("{}_{}", marker, file_data.file_name);
 }
 
 fn print_table_row(folder_name: &str, file_data: &FileData) -> String {
     match file_data {
-        FileData{ file_name, file_size, create_date, .. } => {
+        FileData { file_name, file_size, create_date, is_dir } => {
+            let folder_char = if *is_dir { "&#x1F4C1;" } else { "&#128196;" };
             format!("\
                 <tr>\
+                    <td>{folder_char}</td>\
                     <td align='right'>{file_size}</td>\
                     <td align='right'>{create_date}</td>\
                     <td><a href='{folder_name}/{file_name}'>{file_name}</a></td>\
@@ -88,16 +93,37 @@ fn adapt_file_data(path_buf: &PathBuf, file_name: &str) -> Option<FileData> {
     match created_res {
         Ok(system_time) => {
             let date_time: DateTime<Local> = system_time.into();
-            created_str = date_time.format("%b %e %Y").to_string();
+
+            let format = if date_time.year() == Utc::now().year() { "%b %e %T" } else { "%b %e %Y" };
+            created_str = date_time.format(format).to_string();
         }
-        Err(e) => {}
+        Err(_) => {}
     }
     return Some(FileData {
         file_size: metadata.len(),
         file_name: file_name.to_string(),
         is_dir: path_buf.is_dir(),
-        create_date: created_str
+        create_date: created_str,
     });
+}
+
+pub(crate) fn transform_uri(uri: String, root_folder: &String) -> String {
+    println!("uri: {uri} root_folder: {root_folder}");
+    let path_str = build_path(uri, root_folder);
+
+    let path_buf = PathBuf::from(path_str);
+    if path_buf.is_dir() {
+        // Check if it has index.htm or index.html
+        let paths = vec!["index.html", "index.htm"];
+        for path in paths {
+            let mut path_index_html = path_buf.clone();
+            path_index_html.push(path);
+            if path_index_html.exists() {
+                return path_index_html.to_str().unwrap().to_string();
+            }
+        }
+    }
+    return path_buf.to_str().unwrap().to_string();
 }
 
 #[cfg(test)]
@@ -129,5 +155,23 @@ mod tests {
         let built_path = build_path(String::from("index1.html"), &String::from("root"));
         let folder = is_folder(built_path);
         assert_eq!(folder.is_some(), false);
+    }
+
+    #[test]
+    fn when_transform_uri_should_produce_index_html() {
+        let res = transform_uri("".to_string(), &String::from("root"));
+        assert_eq!(res.contains("index.html"), true);
+    }
+
+    #[test]
+    fn when_transform_uri_should_produce_index_htm() {
+        let res = transform_uri("".to_string(), &String::from("root/pdf"));
+        assert_eq!(res.contains("index.htm"), true);
+    }
+
+    #[test]
+    fn when_transform_uri_should_produce_folder() {
+        let res = transform_uri("".to_string(), &String::from("root/pdf/test"));
+        assert_eq!(res.contains("root/pdf/test"), true);
     }
 }
