@@ -1,9 +1,11 @@
+use std::io::Error;
 use std::path::PathBuf;
+use std::time::SystemTime;
 use fancy_regex::Regex;
 
 use chrono::{Datelike, DateTime, Local, TimeZone, Utc};
 
-use crate::remove_double_slash;
+use crate::{HttpData, remove_double_slash};
 
 const DEFAULT_FILE_NAME: &'static str = "unknown";
 
@@ -12,6 +14,7 @@ struct FileData {
     file_size: u64,
     is_dir: bool,
     create_date: String,
+    modified_date: String
 }
 
 pub(crate) fn build_path(uri: String, root_folder: &String) -> String {
@@ -26,10 +29,11 @@ pub(crate) fn is_folder(built_path: String) -> Option<PathBuf> {
     return if path.is_dir() { Some(path) } else { None };
 }
 
-pub(crate) fn list_folder(pb: PathBuf) -> String {
+pub(crate) fn list_folder(pb: PathBuf, root_folder: &String) -> String {
     let files = pb.read_dir().unwrap();
-    let folder_name = pb.file_name().and_then(|name| name.to_str()).unwrap_or(DEFAULT_FILE_NAME);
-    println!("folder_name: {folder_name}");
+    let root_path_buf = PathBuf::from(root_folder);
+    let folder_name = if pb != root_path_buf { pb.file_name().and_then(|name| name.to_str()).unwrap_or(DEFAULT_FILE_NAME) }
+        else { "" };
     let mut buffered = format!("
 <html>
     <head>
@@ -58,7 +62,7 @@ pub(crate) fn list_folder(pb: PathBuf) -> String {
     buffered += "<table>";
     files_vec.sort_by(|a, b| create_key(a).cmp(&create_key(b)));
     for f in files_vec {
-        buffered += print_table_row(folder_name, &f).as_str();
+        buffered += print_table_row(&f).as_str();
     }
     buffered += "</table>";
     buffered += "</body></html>";
@@ -70,15 +74,16 @@ fn create_key(file_data: &FileData) -> String {
     return format!("{}_{}", marker, file_data.file_name);
 }
 
-fn print_table_row(folder_name: &str, file_data: &FileData) -> String {
+fn print_table_row(file_data: &FileData) -> String {
     match file_data {
-        FileData { file_name, file_size, create_date, is_dir } => {
+        FileData { file_name, file_size, create_date, is_dir, modified_date } => {
             let folder_char = if *is_dir { "&#x1F4C1;" } else { "&#128196;" };
             format!("\
                 <tr>\
                     <td>{folder_char}</td>\
                     <td align='right'>{file_size}</td>\
                     <td align='right'>{create_date}</td>\
+                    <td align='right'>{modified_date}</td>\
                     <td><a href='{folder_name}/{file_name}'>{file_name}</a></td>\
                 </tr>")
         }
@@ -87,7 +92,19 @@ fn print_table_row(folder_name: &str, file_data: &FileData) -> String {
 
 fn adapt_file_data(path_buf: &PathBuf, file_name: &str) -> Option<FileData> {
     let metadata = path_buf.metadata().ok()?;
-    let created_res = metadata.created();
+
+    let created_str = convert_time(metadata.created());
+    let modified_str = convert_time(metadata.modified());
+    return Some(FileData {
+        file_size: metadata.len(),
+        file_name: file_name.to_string(),
+        is_dir: path_buf.is_dir(),
+        create_date: created_str,
+        modified_date: modified_str
+    });
+}
+
+fn convert_time(created_res: Result<SystemTime, Error>) -> String {
     let mut created_str = "".to_string();
 
     match created_res {
@@ -99,12 +116,7 @@ fn adapt_file_data(path_buf: &PathBuf, file_name: &str) -> Option<FileData> {
         }
         Err(_) => {}
     }
-    return Some(FileData {
-        file_size: metadata.len(),
-        file_name: file_name.to_string(),
-        is_dir: path_buf.is_dir(),
-        create_date: created_str,
-    });
+    created_str
 }
 
 pub(crate) fn transform_uri(uri: String, root_folder: &String) -> String {

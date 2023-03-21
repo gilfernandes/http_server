@@ -10,7 +10,7 @@ use linked_hash_set::LinkedHashSet;
 use http_server::ThreadPool;
 
 use crate::args::{HttpServerArgs, Mode, RunCommand};
-use crate::folder_operations::{build_path, is_folder, list_folder};
+use crate::folder_operations::{build_path, is_folder, list_folder, transform_uri};
 use crate::http_parser::{Method, request_line};
 use crate::http_struct::HttpData;
 use crate::mime_type_map::{extract_extension, extract_mime_type, MimeTypeProperties, TEXT_HTML};
@@ -83,16 +83,16 @@ fn run_server(run_args: &RunCommand) {
             Some(request_line_content) => {
                 match request_line_content.method {
                     Method::Get | Method::Head => {
-                        let uri = replace_slash(request_line_content.uri);
-                        let extension_option = extract_extension(uri.as_str());
-                        let built_path = build_path(uri.clone(), root_folder);
-                        let folder_option = is_folder(built_path);
+                        let uri = request_line_content.uri.clone();
+                        let built_path = transform_uri(uri.clone(), root_folder);
+                        let extension_option = extract_extension(built_path.as_str());
+                        let folder_option = is_folder(built_path.clone());
                         let mime_type_map = extract_mime_type(extension_option);
-                        println!("Requested resource: {:#?}. Mime type: {}", uri, mime_type_map.content_type);
+                        println!("Requested resource: {:#?}. Mime type: {}", built_path.clone(), mime_type_map.content_type);
                         let is_head = request_line_content.method == Method::Head;
                         let http_data = HttpData {
                             stream: &mut stream,
-                            uri,
+                            uri: built_path,
                             mime_type_map: &mime_type_map,
                             is_head: &is_head,
                             root_folder: root_folder
@@ -152,7 +152,7 @@ fn process_text_content(http_data: HttpData) {
         is_head,
         root_folder
     } = http_data;
-    let path = build_path(uri.clone(), root_folder);
+    let path = uri.clone();
     let result_file = File::open(path);
     match result_file {
         Ok(path) => {
@@ -164,7 +164,8 @@ fn process_text_content(http_data: HttpData) {
                                 contents.as_str(), mime_type_map.content_type.as_str(),
                                 is_head);
                 }
-                Err(_) => {
+                Err(e) => {
+                    println!("Error: {:?}", e.to_string());
                     not_found(HttpData { stream, uri: uri.clone(), mime_type_map, is_head, root_folder });
                 }
             }
@@ -178,7 +179,7 @@ fn process_text_content(http_data: HttpData) {
 fn process_folder_response(http_data: HttpData, dir: PathBuf) {
     let stream = http_data.stream;
     let is_head = http_data.is_head;
-    let folder_response = list_folder(dir);
+    let folder_response = list_folder(dir, &http_data.root_folder);
     stream_text(stream,
                 STATUS_OK,
                 folder_response.as_str(), TEXT_HTML,
@@ -234,7 +235,7 @@ fn process_binary_content(http_data: HttpData) {
         is_head,
         root_folder
     } = http_data;
-    let res = fs::read(build_path(uri.clone(), root_folder));
+    let res = fs::read(uri.clone());
     let mime_type = &mime_type_properties.content_type;
 
     match res {

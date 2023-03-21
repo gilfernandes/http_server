@@ -1,8 +1,10 @@
 use fancy_regex::Regex;
 
+const DEFAULT_INDEX_FILE: &'static str = "index.html";
+
 pub(crate) fn replace_slash(uri: String) -> String {
     return extract_from_str(&Regex::new("(.*)/$").expect("Slash regex is not correct"),
-                            uri.to_string(), "${1}/index.html".to_string());
+                            uri.to_string(), format!("${{1}}/{DEFAULT_INDEX_FILE}").to_string());
 }
 
 pub(crate) fn extract_file_name(uri: String) -> String {
@@ -53,6 +55,12 @@ mod tests {
     #[test]
     fn when_extract_pdf_name_should_extract_test_pdf() {
         assert_eq!(extract_file_name(String::from("/test/test.pdf")),
+                   String::from("test.pdf"));
+    }
+
+    #[test]
+    fn when_extract_pdf_name_should_extract_test1_pdf() {
+        assert_eq!(extract_file_name(String::from("/test/test1/test.pdf")),
                    String::from("test.pdf"));
     }
 }
