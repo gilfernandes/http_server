@@ -6,10 +6,12 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use linked_hash_set::LinkedHashSet;
+use generate_headers::{STATUS_BAD_REQUEST, STATUS_METHOD_NOT_ALLOWED, STATUS_NOT_FOUND, STATUS_OK};
 
 use http_server::ThreadPool;
 
 use crate::args::{HttpServerArgs, Mode, RunCommand};
+use crate::basic_auth::process_basic_auth;
 use crate::folder_operations::{build_path, is_folder, list_folder, transform_uri};
 use crate::http_parser::{Method, request_line};
 use crate::http_struct::HttpData;
@@ -23,13 +25,20 @@ mod http_struct;
 mod args;
 mod header_parser;
 mod folder_operations;
+mod basic_auth;
+mod generate_headers;
 
-const STATUS_OK: &'static str = "HTTP/1.1 200 OK";
-const STATUS_BAD_REQUEST: &'static str = "HTTP/1.1 400 Bad Request";
-const STATUS_NOT_FOUND: &'static str = "HTTP/1.1 404 Not Found";
-const STATUS_METHOD_NOT_ALLOWED: &'static str = "HTTP/1.1 405 Method Not Allowed";
-const STATUS_NO_CONTENT: &'static str = "HTTP/1.1 204 No Content";
-const SERVER_NAME: &'static str = "Gil HTTP";
+const STATUS_METHOD_NOT_ALLOWED_RESPONSE: &'static str = "<!DOCTYPE html>
+<html lang=\"en\">
+<head>
+    <meta charset=\"utf-8\">
+    <title>Method Not Allowed!</title>
+</head>
+<body>
+<h1>Method not allowed!</h1>
+<p>400 - The method you tried is not allowed</p>
+</body>
+</html>";
 
 fn main() {
     let args = HttpServerArgs::parse();
@@ -44,7 +53,9 @@ fn main() {
 }
 
 fn run_server(run_args: &RunCommand) {
-    let listener = TcpListener::bind(format!("{}:{}", &run_args.host, &run_args.port)).unwrap();
+    let listener = TcpListener::bind(format!("{}:{}",
+                                             &run_args.host,
+                                             &run_args.port)).unwrap();
     let pool = ThreadPool::new(run_args.pool_size);
 
     for stream_result in listener.incoming() {
@@ -81,9 +92,15 @@ fn run_server(run_args: &RunCommand) {
 
         match request_line_option {
             Some(request_line_content) => {
+                let uri = request_line_content.uri.clone();
+                let use_basic_auth = process_basic_auth(&uri, run_args);
+                if use_basic_auth {
+                    stream_headers_only(&mut stream,
+                                        generate_headers::generate_authenticate_response);
+                    return
+                }
                 match request_line_content.method {
                     Method::Get | Method::Head => {
-                        let uri = request_line_content.uri.clone();
                         let built_path = transform_uri(uri.clone(), root_folder);
                         let extension_option = extract_extension(built_path.as_str());
                         let folder_option = is_folder(built_path.clone());
@@ -113,7 +130,8 @@ fn run_server(run_args: &RunCommand) {
                     Method::Options => {
                         let uri = replace_slash(request_line_content.uri);
                         println!("Requested resource: {:#?}", uri);
-                        stream_text_function(&mut stream, "", "", "", &true, generate_option_headers);
+                        stream_headers_only(&mut stream,
+                                            generate_headers::generate_option_headers);
                     }
                     _ => {
                         send_error_response(HttpData {
@@ -123,17 +141,7 @@ fn run_server(run_args: &RunCommand) {
                             is_head: &false,
                             root_folder: &run_args.root_folder,
                         }, "method_not_allowed.html", STATUS_METHOD_NOT_ALLOWED,
-                                            "<!DOCTYPE html>
-<html lang=\"en\">
-<head>
-    <meta charset=\"utf-8\">
-    <title>Method Not Allowed!</title>
-</head>
-<body>
-<h1>Method not allowed!</h1>
-<p>400 - The method you tried is not allowed</p>
-</body>
-</html>");
+                                            STATUS_METHOD_NOT_ALLOWED_RESPONSE);
                     }
                 }
             }
@@ -317,13 +325,22 @@ fn stream_text(stream: &mut TcpStream,
     stream_text_function(stream, status_line, contents, mime_type, is_head, generate_status_headers);
 }
 
+fn stream_headers_only(stream: &mut TcpStream,
+                       generate_status_headers: fn(status_line: &str, length: usize,
+                                                    mime_type: &str,
+                                                    is_binary: &bool) -> LinkedHashSet<String>) {
+    stream_text_function(stream, "", "", "",
+                         &true, generate_status_headers)
+}
+
 fn stream_text_function(stream: &mut TcpStream,
                         status_line: &str,
                         contents: &str,
                         mime_type: &str,
                         is_head: &bool,
-                        generate_status_headers: fn(status_line: &str, length: usize, mime_type: &str, is_binary: &bool)
-                                                    -> LinkedHashSet<String>,
+                        generate_status_headers: fn(status_line: &str, length: usize,
+                                                    mime_type: &str,
+                                                    is_binary: &bool) -> LinkedHashSet<String>,
 ) {
     let length = contents.len();
     let header_map = generate_status_headers(status_line, length, mime_type, is_head);
@@ -346,7 +363,7 @@ fn concatenate_headers(header_map: &LinkedHashSet<String>) -> String {
 fn generate_status_headers(status_line: &str, length: usize, mime_type: &str, is_binary: &bool) -> LinkedHashSet<String> {
     let content_length = format!("Content-Length: {length}\r\n");
     let content_type = if *is_binary { format!("Content-Type: {mime_type}\r\n") } else { format!("Content-Type: {mime_type}; charset=utf-8\r\n") };
-    let (status_line, cache_control, server) = generate_status_with_common_headers(status_line);
+    let (status_line, cache_control, server) = generate_headers::generate_status_with_common_headers(status_line);
 
     let mut status_headers_set = LinkedHashSet::new();
     status_headers_set.insert(status_line);
@@ -356,22 +373,4 @@ fn generate_status_headers(status_line: &str, length: usize, mime_type: &str, is
     status_headers_set.insert(server);
 
     return status_headers_set.clone();
-}
-
-fn generate_option_headers(_: &str, _: usize, _: &str, _: &bool) -> LinkedHashSet<String> {
-    let allow = format!("Allow: OPTIONS, GET, HEAD\r\n");
-    let (status_line, cache_control, server) = generate_status_with_common_headers(STATUS_NO_CONTENT);
-    let mut status_headers_set = LinkedHashSet::new();
-    status_headers_set.insert(status_line);
-    status_headers_set.insert(allow);
-    status_headers_set.insert(cache_control);
-    status_headers_set.insert(server);
-    return status_headers_set.clone();
-}
-
-fn generate_status_with_common_headers(status_line: &str) -> (String, String, String) {
-    let status_line = format!("{status_line}\r\n");
-    let cache_control = format!("Cache-Control: public, max-age=120\r\n");
-    let server = format!("Server: {SERVER_NAME}\r\n");
-    return (status_line, cache_control, server);
 }

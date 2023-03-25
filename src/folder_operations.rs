@@ -1,7 +1,6 @@
 use std::io::Error;
 use std::path::PathBuf;
 use std::time::SystemTime;
-use fancy_regex::Regex;
 
 use chrono::{Datelike, DateTime, Local, TimeZone, Utc};
 
