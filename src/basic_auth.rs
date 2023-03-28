@@ -1,4 +1,4 @@
-use crate::args::{AuthMode, BasicAuthCommand};
+use crate::args::{AuthMode};
 use crate::RunCommand;
 
 fn extract_basic_auth_folders(auth_folders: &String) -> Vec<&str> {
@@ -22,7 +22,7 @@ pub(crate) fn process_basic_auth(uri: &String, run_args: &RunCommand) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::args::NoneAuthCommand;
+    use crate::args::{BasicAuthCommand, NoneAuthCommand};
     use super::*;
 
     #[test]

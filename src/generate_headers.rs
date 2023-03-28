@@ -10,7 +10,7 @@ const STATUS_UNAUTHORIZED: &'static str = "HTTP/1.1 401 Unauthorized";
 const SERVER_NAME: &'static str = "Gil HTTP";
 
 const HEADER_AUTHENTICATE: &'static str =
-    "WWW-Authenticate: Basic realm=\"User Visible Realm`\", charset=`\"UTF-8`\"";
+    "WWW-Authenticate: Basic realm=\"User Visible Realm\", charset=\"UTF-8\"";
 
 pub fn generate_option_headers(_: &str, _: usize, _: &str, _: &bool) -> LinkedHashSet<String> {
     let allow = format!("Allow: OPTIONS, GET, HEAD\r\n");

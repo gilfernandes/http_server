@@ -8,11 +8,12 @@ use nom::{
     IResult,
 };
 use nom::character::is_alphanumeric;
+use crate::http_parser::AuthMethod::Basic;
 
 // Primitives
 
 fn is_token_char(i: u8) -> bool {
-    is_alphanumeric(i) || b"!#$%&'*+-.^_`|~".contains(&i)
+    is_alphanumeric(i) || b"!#$%&'*+-.^_`|~=".contains(&i)
 }
 
 pub(crate) fn token(i: &[u8]) -> IResult<&[u8], &[u8]> {
@@ -101,6 +102,17 @@ pub struct RequestLine {
     pub version: Version,
 }
 
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub enum AuthMethod {
+    Basic
+}
+
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub struct Authentication {
+    pub method: AuthMethod,
+    pub encoded_credentials: String
+}
+
 impl RequestLine {
     pub fn from_raw_request(r: RawRequestLine) -> Option<RequestLine> {
         if let Ok(uri) = str::from_utf8(r.uri) {
@@ -134,16 +146,53 @@ pub fn request_line(i: &[u8]) -> IResult<&[u8], Option<RequestLine>> {
     let (i, _) = space(i)?;
     let (i, version) = http_version(i)?;
 
-    let raw_request_line = RawRequestLine {
-        method,
-        uri,
-        version,
-    };
+    let raw_request_line = RawRequestLine { method, uri, version };
 
     Ok((
         i,
         RequestLine::from_raw_request(raw_request_line)
     ))
 }
+
+pub fn basic_authorization_header(i: &[u8]) -> IResult<&[u8], Option<Authentication>> {
+    let (i, _) = tag("Authorization:")(i)?;
+    let (i, _) = space(i)?;
+    let (i, _) = tag("Basic")(i)?;
+    let (i, _) = space(i)?;
+    let (i, credentials) = token(i)?;
+
+    Ok((
+        i,
+        if let Ok(encoded_credentials) = str::from_utf8(credentials) {
+            Some(Authentication {
+                encoded_credentials: encoded_credentials.to_string(),
+                method: Basic
+            })
+        } else { None }
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use nom::Finish;
+    use super::*;
+
+    #[test]
+    fn when_is_basic_auth_header_should_succeed() {
+        let header = "Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\r\n";
+        let res = basic_authorization_header(header.as_bytes());
+        assert!(res.is_ok());
+        let (_, option) = res.unwrap();
+        assert!(option.is_some());
+        let authentication = option.unwrap();
+        assert_eq!(authentication.encoded_credentials, "QWxhZGRpbjpvcGVuIHNlc2FtZQ==");
+    }
+
+    #[test]
+    fn when_is_basic_auth_header_should_err() {
+        let header = "accept-language: en-GB,en;q=0.9,en-US;q=0.8\r\n";
+        let res = basic_authorization_header(header.as_bytes());
+        assert!(res.is_err());
+    } }
 
 

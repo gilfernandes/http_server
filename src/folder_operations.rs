@@ -2,9 +2,9 @@ use std::io::Error;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-use chrono::{Datelike, DateTime, Local, TimeZone, Utc};
+use chrono::{Datelike, DateTime, Local, Utc};
 
-use crate::{HttpData, remove_double_slash};
+use crate::{remove_double_slash};
 
 const DEFAULT_FILE_NAME: &'static str = "unknown";
 
