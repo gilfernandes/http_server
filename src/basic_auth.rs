@@ -1,4 +1,4 @@
-use crate::args::{AuthMode};
+use crate::args::{AuthMode, BasicAuthCommand};
 use crate::RunCommand;
 
 fn extract_basic_auth_folders(auth_folders: &String) -> Vec<&str> {
@@ -6,18 +6,18 @@ fn extract_basic_auth_folders(auth_folders: &String) -> Vec<&str> {
     return splits.collect::<Vec<&str>>()
 }
 
-pub(crate) fn process_basic_auth(uri: &String, run_args: &RunCommand) -> bool {
+pub(crate) fn process_basic_auth<'a>(uri: &'a String, run_args: &'a RunCommand) -> Option<&'a BasicAuthCommand> {
     let auth_mode = &run_args.auth_mode;
     match auth_mode {
         AuthMode::Basic(basic_auth_command) => {
             let protected_folders = &basic_auth_command.protected_folders;
             let folders_vec = extract_basic_auth_folders(protected_folders);
             let matches = folders_vec.iter().find(|&&s| uri.starts_with(s));
-            return matches.is_some();
+            return Some(basic_auth_command)
         }
         AuthMode::None(_) => {}
     }
-    false
+    None
 }
 
 #[cfg(test)]

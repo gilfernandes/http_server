@@ -6,14 +6,14 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use linked_hash_set::LinkedHashSet;
-use generate_headers::{STATUS_BAD_REQUEST, STATUS_METHOD_NOT_ALLOWED, STATUS_NOT_FOUND, STATUS_OK};
 
+use generate_headers::{STATUS_BAD_REQUEST, STATUS_METHOD_NOT_ALLOWED, STATUS_NOT_FOUND, STATUS_OK};
 use http_server::ThreadPool;
 
 use crate::args::{HttpServerArgs, Mode, RunCommand};
 use crate::basic_auth::process_basic_auth;
 use crate::folder_operations::{build_path, is_folder, list_folder, transform_uri};
-use crate::http_parser::{Method, request_line};
+use crate::http_parser::{BasicCredentials, decode_user_name_password, find_basic_authorization_header, Method, request_line};
 use crate::http_struct::HttpData;
 use crate::mime_type_map::{extract_extension, extract_mime_type, MimeTypeProperties, TEXT_HTML};
 use crate::string_operations::{extract_file_name, remove_double_slash, replace_slash};
@@ -71,7 +71,7 @@ fn run_server(run_args: &RunCommand) {
 
     fn handle_connection(mut stream: TcpStream, run_args: &RunCommand) {
         let buf_reader = BufReader::new(&mut stream);
-        let http_request: Vec<_> = buf_reader
+        let http_request: Vec<String> = buf_reader
             .lines()
             .map(|result| result.unwrap())
             .take_while(|line| !line.is_empty())
@@ -93,11 +93,19 @@ fn run_server(run_args: &RunCommand) {
         match request_line_option {
             Some(request_line_content) => {
                 let uri = request_line_content.uri.clone();
-                let use_basic_auth = process_basic_auth(&uri, run_args);
-                if use_basic_auth {
-                    stream_headers_only(&mut stream,
-                                        generate_headers::generate_authenticate_response);
-                    return
+                if let Some(use_basic_auth) = process_basic_auth(&uri, run_args) {
+                    let credentials_option = process_basic_authentication(http_request);
+                    if let None = credentials_option {
+                        stream_headers_only(&mut stream,
+                                            generate_headers::generate_authenticate_response);
+                        return;
+                    }
+                    let credentials = credentials_option.unwrap();
+                    if credentials.username != *use_basic_auth.username && credentials.password != *use_basic_auth.password {
+                        stream_headers_only(&mut stream,
+                                            generate_headers::generate_authenticate_response);
+                        return;
+                    }
                 }
                 match request_line_content.method {
                     Method::Get | Method::Head => {
@@ -112,7 +120,7 @@ fn run_server(run_args: &RunCommand) {
                             uri: built_path,
                             mime_type_map: &mime_type_map,
                             is_head: &is_head,
-                            root_folder: root_folder
+                            root_folder: root_folder,
                         };
                         match folder_option {
                             Some(folder) => {
@@ -149,6 +157,23 @@ fn run_server(run_args: &RunCommand) {
                 send_bad_request(&mut stream, &run_args.root_folder);
             }
         }
+    }
+
+    fn process_basic_authentication(http_request: Vec<String>) -> Option<BasicCredentials> {
+        let authentication_option = find_basic_authorization_header(http_request);
+        match authentication_option {
+            Some(authentication) => {
+                let credentials_option = decode_user_name_password(&authentication);
+                match credentials_option {
+                    Some(credentials) => {
+                        return Some(credentials);
+                    }
+                    None => {}
+                }
+            }
+            None => {}
+        }
+        None
     }
 }
 
@@ -272,7 +297,7 @@ fn process_binary_content(http_data: HttpData) {
                 uri: uri.clone(),
                 mime_type_map: mime_type_properties,
                 is_head,
-                root_folder
+                root_folder,
             });
         }
     }
@@ -327,8 +352,8 @@ fn stream_text(stream: &mut TcpStream,
 
 fn stream_headers_only(stream: &mut TcpStream,
                        generate_status_headers: fn(status_line: &str, length: usize,
-                                                    mime_type: &str,
-                                                    is_binary: &bool) -> LinkedHashSet<String>) {
+                                                   mime_type: &str,
+                                                   is_binary: &bool) -> LinkedHashSet<String>) {
     stream_text_function(stream, "", "", "",
                          &true, generate_status_headers)
 }
@@ -347,11 +372,9 @@ fn stream_text_function(stream: &mut TcpStream,
 
     let concatenated_headers_str = concatenate_headers(&header_map);
 
-    let response = if *is_head { format!("{concatenated_headers_str}\r\n") }
-    else { format!("{concatenated_headers_str}\r\n{contents}") };
+    let response = if *is_head { format!("{concatenated_headers_str}\r\n") } else { format!("{concatenated_headers_str}\r\n{contents}") };
     let bytes = response.as_bytes();
     stream.write_all(bytes).unwrap();
-
 }
 
 fn concatenate_headers(header_map: &LinkedHashSet<String>) -> String {
