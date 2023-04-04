@@ -13,7 +13,11 @@ pub(crate) fn process_basic_auth<'a>(uri: &'a String, run_args: &'a RunCommand) 
             let protected_folders = &basic_auth_command.protected_folders;
             let folders_vec = extract_basic_auth_folders(protected_folders);
             let matches = folders_vec.iter().find(|&&s| uri.starts_with(s));
-            return Some(basic_auth_command)
+            if matches.is_some() {
+                let found = *matches.unwrap();
+                println!("Found folder: {found}");
+                return Some(basic_auth_command)
+            }
         }
         AuthMode::None(_) => {}
     }

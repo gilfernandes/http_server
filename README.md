@@ -37,16 +37,30 @@ Options:
 The command `run` is the most important one and has the following parameters:
 
 ```
-Usage: http_server.exe run [OPTIONS] --port <PORT> --host <HOST>
+Run the server
+
+Usage: http_server.exe run [OPTIONS] --port <PORT> --host <HOST> <COMMAND>
+
+Commands:
+  none   No authentication
+  basic  Just basic authentication
+  help   Print this message or the help of the given subcommand(s)
 
 Options:
-  -p, --port <PORT>            The server port
-      --host <HOST>            The server host
-      --pool-size <POOL_SIZE>  [default: 4]
-  -h, --help                   Print help
+  -p, --port <PORT>                The server port
+      --host <HOST>                The server host
+      --pool-size <POOL_SIZE>      [default: 4]
+      --root-folder <ROOT_FOLDER>  The root folder [default: root]
+  -h, --help                       Print help
 
 ```
 
-A typical execution command would be:
+A typical execution to start the server without authentication command would be:
 
-```http_server.exe run --host localhost --port 7878```
+```http_server.exe  run --host 127.0.0.1 --port 7878 --root-folder /tmp none```
+
+A typical execution to start the server with basic authentication would be:
+
+```http_server.exe  run --host 127.0.0.1 --port 7878 --root-folder /tmp basic --protected-folders /data```
+
+
